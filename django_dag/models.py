@@ -26,6 +26,43 @@ class NodeBase(object):
     class Meta:
         ordering = ('-id',)
 
+    traverse_sql_tpl_lvl2 = """
+        WITH RECURSIVE traverse(id) AS (
+            SELECT edge.{{to_column}} FROM {edge_table} edge
+            WHERE edge.{{from_column}} = %s
+                UNION
+            SELECT edge2.{{to_column}} FROM traverse edge1, {edge_table} edge2
+            WHERE edge1.id = edge2.{{from_column}})
+        SELECT {{select_columns}} FROM {node_table} node INNER JOIN traverse
+        ON traverse.id = node.id
+    """
+
+    traverse_sql_template = None
+
+    @classmethod
+    def get_traverse_sql(cls, direction, **kwargs):
+        """
+        Constructs a traversal SQL based on direction (ancestor, or descendant)
+        """
+        if cls.traverse_sql_template is None:
+            cls.traverse_sql_template = cls.traverse_sql_tpl_lvl2.format(
+                node_table=cls._meta.db_table,
+                edge_table=cls.children.through._meta.db_table)
+
+        kwargs2 = kwargs.copy()
+        if direction == 'descendant':
+            kwargs2['from_column'] = 'parent_id'
+            kwargs2['to_column'] = 'child_id'
+
+        elif direction == 'ancestor':
+            kwargs2['from_column'] = 'child_id'
+            kwargs2['to_column'] = 'parent_id'
+
+        else:
+            raise ValueError("direction has be ancestor or descendant")
+
+        return cls.traverse_sql_template.format(**kwargs2)
+
     def __unicode__(self):
         return "# %s" % self.pk
 
