@@ -192,6 +192,26 @@ class NodeBase(object):
         """
         return bool(not self.children.exists() and not self._parents.exists())
 
+    def is_descendant_of(self, target):
+        """
+        Check if self is a descendant of target
+        """
+        q = (self.get_traverse_sql('descendant', select_columns='node.id') +
+             "WHERE traverse.id = %s")
+
+        return bool(len(list(self.__class__.objects.raw(q, [target.id,
+                                                            self.id]))))
+
+    def is_ancestor_of(self, target):
+        """
+        Check if self is an ancestor of target
+        """
+        q = (self.get_traverse_sql('ancestor', select_columns='node.id') +
+             "WHERE traverse.id = %s")
+
+        return bool(len(list(self.__class__.objects.raw(q, [target.id,
+                                                            self.id]))))
+
     def _get_roots(self, at):
         """
         Works on objects: no queries
@@ -243,9 +263,9 @@ class NodeBase(object):
         """
         if parent == child:
             raise ValidationError('Self links are not allowed')
-        if child in parent.ancestors_set():
+        if child.is_ancestor_of(parent):
             raise ValidationError('The object is an ancestor.')
-        if child in parent.descendants_set():
+        if child.is_descendant_of(parent):
             raise ValidationError('The object is a descendant.')
 
 
