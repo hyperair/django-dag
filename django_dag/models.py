@@ -121,25 +121,31 @@ class NodeBase(object):
             tree[f] = f.ancestors_tree()
         return tree
 
+    def get_descendants(self):
+        """Returns a RawQuerySet of descendants"""
+        q = self.get_traverse_sql('descendant', select_columns='node.*')
+
+        return self.__class__.objects.raw(q, [self.id])
+
+    def get_ancestors(self):
+        """
+        Returns a RawQuerySet of ancestors
+        """
+        q = self.get_traverse_sql('ancestor', select_columns='node.*')
+
+        return self.__class__.objects.raw(q, [self.id])
+
     def descendants_set(self):
         """
-        Returns a set of descendants
+        Compatibility wrapper for get_descendants() that returns a set
         """
-        res = set()
-        for f in self.children.all():
-            res.add(f)
-            res.update(f.descendants_set())
-        return res
+        return set(self.get_descendants())
 
     def ancestors_set(self):
         """
-        Returns a set of ancestors
+        Compatibility wrapper for get_ancestors() that returns a set
         """
-        res = set()
-        for f in self.parents():
-            res.add(f)
-            res.update(f.ancestors_set())
-        return res
+        return set(self.get_ancestors())
 
     def distance(self, target):
         """
