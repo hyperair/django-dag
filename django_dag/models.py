@@ -187,22 +187,23 @@ class NodeBase(object):
         """
         Returns the shortest path
         """
-        if self == target:
-            return []
-        if target in self.children.all():
-            return [target]
-        if target in self.descendants_set():
-            path = None
-            for d in self.children.all():
-                try:
-                    desc_path = d.path(target)
-                    if not path or len(desc_path) < path:
-                        path = [d] + desc_path
-                except NodeNotReachableException:
-                    pass
-        else:
+        q = self.get_traverse_sql('descendant', select_columns='node.id, path')
+        q += """
+            WHERE node.id = %s
+            AND ARRAY_LENGTH(traverse.path, 1) =
+                (SELECT MIN(ARRAY_LENGTH(t2.path, 1)) FROM traverse t2
+                 WHERE t2.id = node.id) LIMIT 1
+        """
+        qs = self.__class__.objects.raw(q, [self.id, target.id])
+
+        try:
+            ids_path = qs[0].path[1:]
+
+        except self.DoesNotExist:
             raise NodeNotReachableException
-        return path
+
+        nodes = self.__class__.objects.in_bulk(ids_path)
+        return [nodes[nodeid] for nodeid in ids_path]
 
     def is_root(self):
         """
