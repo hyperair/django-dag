@@ -46,6 +46,19 @@ class NodeBase(object):
 
     traverse_sql_template = None
 
+    @staticmethod
+    def get_column_names(direction):
+        if direction == 'descendant':
+            return {'from_column': 'parent_id',
+                    'to_column': 'child_id'}
+
+        elif direction == 'ancestor':
+            return {'from_column': 'child_id',
+                    'to_column': 'parent_id'}
+
+        else:
+            raise ValueError("direction has to be 'ancestor' or 'descendant'")
+
     @classmethod
     def get_traverse_sql(cls, direction, **kwargs):
         """
@@ -57,16 +70,7 @@ class NodeBase(object):
                 edge_table=cls.children.through._meta.db_table)
 
         kwargs2 = kwargs.copy()
-        if direction == 'descendant':
-            kwargs2['from_column'] = 'parent_id'
-            kwargs2['to_column'] = 'child_id'
-
-        elif direction == 'ancestor':
-            kwargs2['from_column'] = 'child_id'
-            kwargs2['to_column'] = 'parent_id'
-
-        else:
-            raise ValueError("direction has be ancestor or descendant")
+        kwargs2.update(cls.get_column_names(direction))
 
         return cls.traverse_sql_template.format(**kwargs2)
 
@@ -243,48 +247,29 @@ class NodeBase(object):
         return bool(len(list(self.__class__.objects.raw(q, [target.id,
                                                             self.id]))))
 
-    def _get_roots(self, at):
-        """
-        Works on objects: no queries
-        """
-        if not at:
-          return set([self])
-        roots = set()
-        for a2 in at:
-            roots.update(a2._get_roots(at[a2]))
-        return roots
+    def get_endpoints(self, direction):
+        q = self.get_traverse_sql(direction, select_columns='node.*')
+        q += """
+            WHERE NOT EXISTS (SELECT * FROM {edge_table}
+                              WHERE {from_column} = node.id)
+        """.format(edge_table=self.children.through._meta.db_table,
+                   **self.get_column_names(direction))
+
+        qs = self.__class__.objects.raw(q, [self.id])
+
+        return set(qs)
 
     def get_roots(self):
         """
         Returns roots nodes, if any
         """
-        at =  self.ancestors_tree()
-        roots = set()
-        for a in at:
-            roots.update(a._get_roots(at[a]))
-        return roots
-
-    def _get_leaves(self, dt):
-        """
-        Works on objects: no queries
-        """
-        if not dt:
-          return set([self])
-        leaves = set()
-        for d2 in dt:
-            leaves.update(d2._get_leaves(dt[d2]))
-        return leaves
+        return self.get_endpoints('ancestor')
 
     def get_leaves(self):
         """
         Returns leaves nodes, if any
         """
-        dt =  self.descendants_tree()
-        leaves = set()
-        for d in dt:
-            leaves.update(d._get_leaves(dt[d]))
-        return leaves
-
+        return self.get_endpoints('descendant')
 
     @staticmethod
     def circular_checker(parent, child):
