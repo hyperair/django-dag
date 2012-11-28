@@ -185,12 +185,9 @@ class NodeBase(object):
         """
         Returns the shortest hops count to the target vertex
         """
-        return len(self.path(target))
+        return len(self._path_id(target))
 
-    def path(self, target):
-        """
-        Returns the shortest path
-        """
+    def _path_id(self, target):
         q = self.get_traverse_sql('descendant', select_columns='node.id, path')
         q += """
             WHERE node.id = %s
@@ -201,11 +198,16 @@ class NodeBase(object):
         qs = self.__class__.objects.raw(q, [self.id, target.id])
 
         try:
-            ids_path = qs[0].path[1:]
+            return qs[0].path[1:]
 
         except self.DoesNotExist:
             raise NodeNotReachableException
 
+    def path(self, target):
+        """
+        Returns the shortest path
+        """
+        ids_path = self._path_id(target)
         nodes = self.__class__.objects.in_bulk(ids_path)
         return [nodes[nodeid] for nodeid in ids_path]
 
