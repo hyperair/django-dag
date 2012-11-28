@@ -27,12 +27,19 @@ class NodeBase(object):
         ordering = ('-id',)
 
     traverse_sql_tpl_lvl2 = """
-        WITH RECURSIVE traverse(id) AS (
-            SELECT edge.{{to_column}} FROM {edge_table} edge
+        WITH RECURSIVE traverse(id, path, cycle) AS (
+            SELECT edge.{{to_column}},
+                   ARRAY[edge.{{from_column}},
+                         edge.{{to_column}}],
+                   false
+            FROM {edge_table} edge
             WHERE edge.{{from_column}} = %s
-                UNION
-            SELECT edge2.{{to_column}} FROM traverse edge1, {edge_table} edge2
-            WHERE edge1.id = edge2.{{from_column}})
+                UNION ALL
+            SELECT edge2.{{to_column}},
+                   edge1.path || edge2.{{to_column}},
+                   edge2.{{to_column}} = ANY(edge1.path)
+            FROM traverse edge1, {edge_table} edge2
+            WHERE edge1.id = edge2.{{from_column}} AND NOT edge1.cycle)
         SELECT {{select_columns}} FROM {node_table} node INNER JOIN traverse
         ON traverse.id = node.id
     """
@@ -103,23 +110,46 @@ class NodeBase(object):
         """
         return self.__class__.objects.filter(children = self)
 
+    def build_tree(self, direction):
+        q = (self.get_traverse_sql(direction,
+                                   select_columns=('node.*, '
+                                                   'path')) +
+             "ORDER BY array_length(traverse.path, 1)")
+
+        qs = self.__class__.objects.raw(q, [self.id])
+
+        # Lookup table of nodes by id
+        nodes = dict((node.id, node) for node in qs)
+        nodes[self.id] = self
+        tree = {}
+        seen_paths = {}
+
+        for node in qs:
+            current_path = tuple(node.path[1:-1])
+
+            try:
+                current_tree = seen_paths[current_path]
+            except KeyError:
+                current_tree = tree
+                for n in current_path:
+                    current_tree = current_tree[nodes[n]]
+                seen_paths[current_path] = current_tree
+
+            seen_paths[tuple(node.path)] = current_tree[node] = {}
+
+        return tree
+
     def descendants_tree(self):
         """
         Returns a tree-like structure with progeny
         """
-        tree = {}
-        for f in self.children.all():
-            tree[f] = f.descendants_tree()
-        return tree
+        return self.build_tree('descendant')
 
     def ancestors_tree(self):
         """
         Returns a tree-like structure with ancestors
         """
-        tree = {}
-        for f in self.parents():
-            tree[f] = f.ancestors_tree()
-        return tree
+        return self.build_tree('ancestor')
 
     def get_descendants(self):
         """Returns a RawQuerySet of descendants"""
