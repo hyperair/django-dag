@@ -72,8 +72,8 @@ Test additional fields for edge
 >>> p9.children.through.objects.filter(child=p10)[0].name
 u'test_name'
 
->>> p1.path(p7)
-[<ConcreteNode: # 6>, <ConcreteNode: # 7>]
+>>> p1.path(p7) == [p6, p7] or p1.path(p7) == [p5, p7]
+True
 
 >>> p1.path(p10)
 [<ConcreteNode: # 6>, <ConcreteNode: # 9>, <ConcreteNode: # 10>]
