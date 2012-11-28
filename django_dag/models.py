@@ -27,19 +27,16 @@ class NodeBase(object):
         ordering = ('-id',)
 
     traverse_sql_tpl_lvl2 = """
-        WITH RECURSIVE traverse(id, path, cycle) AS (
+        WITH RECURSIVE traverse(id, prev_id) AS (
             SELECT edge.{{to_column}},
-                   ARRAY[edge.{{from_column}},
-                         edge.{{to_column}}],
-                   false
+                   edge.{{from_column}}
             FROM {edge_table} edge
             WHERE edge.{{from_column}} = %s
-                UNION ALL
+                UNION
             SELECT edge2.{{to_column}},
-                   edge1.path || edge2.{{to_column}},
-                   edge2.{{to_column}} = ANY(edge1.path)
+                   edge2.{{from_column}}
             FROM traverse edge1, {edge_table} edge2
-            WHERE edge1.id = edge2.{{from_column}} AND NOT edge1.cycle)
+            WHERE edge1.id = edge2.{{from_column}})
         SELECT {{select_columns}} FROM {node_table} node INNER JOIN traverse
         ON traverse.id = node.id
     """
@@ -115,33 +112,21 @@ class NodeBase(object):
         return self.__class__.objects.filter(children = self)
 
     def build_tree(self, direction):
-        q = (self.get_traverse_sql(direction,
-                                   select_columns=('node.*, '
-                                                   'path')) +
-             "ORDER BY array_length(traverse.path, 1)")
-
+        q = self.get_traverse_sql(direction,
+                                  select_columns=('node.*, prev_id'))
         qs = self.__class__.objects.raw(q, [self.id])
 
-        # Lookup table of nodes by id
         nodes = dict((node.id, node) for node in qs)
         nodes[self.id] = self
-        tree = {}
-        seen_paths = {}
+        treelookup = {}
 
         for node in qs:
-            current_path = tuple(node.path[1:-1])
+            current_tree = treelookup.setdefault(node, {})
+            prev_tree = treelookup.setdefault(nodes[node.prev_id], {})
 
-            try:
-                current_tree = seen_paths[current_path]
-            except KeyError:
-                current_tree = tree
-                for n in current_path:
-                    current_tree = current_tree[nodes[n]]
-                seen_paths[current_path] = current_tree
+            prev_tree[node] = current_tree
 
-            seen_paths[tuple(node.path)] = current_tree[node] = {}
-
-        return tree
+        return treelookup[self]
 
     def descendants_tree(self):
         """
