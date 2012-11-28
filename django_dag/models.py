@@ -10,6 +10,9 @@ Some ideas stolen from: from https://github.com/stdbrouw/django-treebeard-dag
 from django.db import models
 from django.core.exceptions import ValidationError
 
+from pygraph.classes.digraph import digraph
+from pygraph.algorithms.minmax import shortest_path
+
 
 class NodeNotReachableException (Exception):
     """
@@ -171,31 +174,38 @@ class NodeBase(object):
         """
         Returns the shortest hops count to the target vertex
         """
-        return len(self._path_id(target))
+        _, distances = self._raw_path(target)
+        return distances[target]
 
-    def _path_id(self, target):
-        q = self.get_traverse_sql('descendant', select_columns='node.id, path')
-        q += """
-            WHERE node.id = %s
-            AND ARRAY_LENGTH(traverse.path, 1) =
-                (SELECT MIN(ARRAY_LENGTH(t2.path, 1)) FROM traverse t2
-                 WHERE t2.id = node.id) LIMIT 1
-        """
-        qs = self.__class__.objects.raw(q, [self.id, target.id])
+    def _raw_path(self, target):
+        q = self.get_traverse_sql('descendant',
+                                  select_columns='node.*, prev_id')
+        qs = self.__class__.objects.raw(q, [self.id])
 
-        try:
-            return qs[0].path[1:]
+        nodes = dict((node.id, node) for node in qs)
+        nodes[self.id] = self
 
-        except self.DoesNotExist:
-            raise NodeNotReachableException
+        graph = digraph()
+        graph.add_nodes(nodes.values())
+        for node in qs:
+            graph.add_edge((nodes[node.prev_id], node))
+
+        return shortest_path(graph, self)
 
     def path(self, target):
         """
         Returns the shortest path
         """
-        ids_path = self._path_id(target)
-        nodes = self.__class__.objects.in_bulk(ids_path)
-        return [nodes[nodeid] for nodeid in ids_path]
+        previous_nodes, _ = self._raw_path(target)
+
+        path = []
+        current_target = target
+
+        while current_target != self:
+            path.append(current_target)
+            current_target = previous_nodes[current_target]
+
+        return path[::-1]
 
     def is_root(self):
         """
