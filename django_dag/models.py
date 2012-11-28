@@ -157,7 +157,8 @@ class NodeBase(object):
 
     def get_descendants(self):
         """Returns a RawQuerySet of descendants"""
-        q = self.get_traverse_sql('descendant', select_columns='node.*')
+        q = self.get_traverse_sql('descendant',
+                                  select_columns='DISTINCT node.*')
 
         return self.__class__.objects.raw(q, [self.id])
 
@@ -165,7 +166,7 @@ class NodeBase(object):
         """
         Returns a RawQuerySet of ancestors
         """
-        q = self.get_traverse_sql('ancestor', select_columns='node.*')
+        q = self.get_traverse_sql('ancestor', select_columns='DISTINCT node.*')
 
         return self.__class__.objects.raw(q, [self.id])
 
@@ -233,7 +234,8 @@ class NodeBase(object):
         """
         Check if self is a descendant of target
         """
-        q = (self.get_traverse_sql('descendant', select_columns='node.id') +
+        q = (self.get_traverse_sql('descendant',
+                                   select_columns='DISTINCT node.id') +
              "WHERE traverse.id = %s")
 
         return bool(len(list(self.__class__.objects.raw(q, [target.id,
@@ -243,14 +245,15 @@ class NodeBase(object):
         """
         Check if self is an ancestor of target
         """
-        q = (self.get_traverse_sql('ancestor', select_columns='node.id') +
+        q = (self.get_traverse_sql('ancestor',
+                                   select_columns='DISTINCT node.id') +
              "WHERE traverse.id = %s")
 
         return bool(len(list(self.__class__.objects.raw(q, [target.id,
                                                             self.id]))))
 
     def get_endpoints(self, direction):
-        q = self.get_traverse_sql(direction, select_columns='node.*')
+        q = self.get_traverse_sql(direction, select_columns='DISTINCT node.*')
         q += """
             WHERE NOT EXISTS (SELECT * FROM {edge_table}
                               WHERE {from_column} = node.id)
